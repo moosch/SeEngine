@@ -1,0 +1,8 @@
+# Damn you apple!
+.DS_Store
+
+# Binary
+game
+
+# Core dumps
+core.*

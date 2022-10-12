@@ -1,0 +1,9 @@
+echo "Cleaning...🧹"
+
+make clean
+
+echo "Building...🏗️"
+
+make
+
+echo "Done✨"
