@@ -6,7 +6,7 @@ Setting up Vulkan by going through the [Vulkan Hello World Tutorial](https://vul
 
 ## What it's not about
 
-* Building a game engine (despite the name ¯\_(ツ)_/¯)
+* Building a game engine (despite the name ¯\\\_(ツ)_/¯)
 * A tutorial on how to set up Vulkan
 * Not a C tutorial - I'm pretty new to C
 
