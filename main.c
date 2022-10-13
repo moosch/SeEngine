@@ -13,10 +13,18 @@ typedef int8_t i8;
 typedef int16_t i16;
 typedef int32_t i32;
 
-
 const char* WIN_TITLE = "SeEngine";
 const u32 WIN_WIDTH = 800;
 const u32 WIN_HEIGHT = 600;
+
+const u32 validationLayerCount = 1;
+const char *validationLayers[] = { "VK_LAYER_KHRONOS_validation" };
+
+#ifdef NDEBUG
+const bool enableValidationLayers = false;
+#else
+const bool enableValidationLayers = true;
+#endif
 
 typedef struct App {
   GLFWwindow *window;
@@ -29,6 +37,8 @@ void mainLoop(App *pApp);
 void cleanup(App *pApp);
 
 void createInstance(App *pApp);
+
+bool checkValidationLayerSupport(void);
 
 int main(void) {
   App app = {0};
@@ -73,19 +83,29 @@ bool verfityExtensionSupport(
   VkExtensionProperties *extensions,
   u32 glfwExtensionCount,
   const char** glfwExtensions) {
-  u32 foundExtensions = 0;
+
   for (int i = 0; i < glfwExtensionCount; i++) {
+    bool extensionFound = false;
     for (int j = 0; j < extensionCount; j++) {
       if (strcmp(extensions[j].extensionName, glfwExtensions[i]) == 0) {
-        foundExtensions++;
+        extensionFound = true;
+        break;
       }
+    }
+    if (!extensionFound) {
+      return false;
     }
   }
 
-  return foundExtensions == glfwExtensionCount;
+  return true;
 }
 
 void createInstance(App *pApp) {
+  if (enableValidationLayers && !checkValidationLayerSupport()) {
+    printf("Validation layers requested but not available!\n");
+    exit(1);
+  }
+
   VkApplicationInfo appInfo = {
     .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
     .pApplicationName = WIN_TITLE,
@@ -107,7 +127,12 @@ void createInstance(App *pApp) {
     .enabledExtensionCount = glfwExtensionCount,
     .ppEnabledExtensionNames = glfwExtensions
   };
-  createInfo.enabledLayerCount = 0;
+  if (enableValidationLayers) {
+    createInfo.enabledLayerCount = validationLayerCount;
+    createInfo.ppEnabledLayerNames = validationLayers;
+  } else {
+    createInfo.enabledLayerCount = 0;
+  }
 
   if (vkCreateInstance(&createInfo, NULL, &pApp->instance) != VK_SUCCESS) {
     printf("Failed to create Vulkan Instance\n");
@@ -120,13 +145,39 @@ void createInstance(App *pApp) {
   VkExtensionProperties *extensions = (VkExtensionProperties*)malloc(sizeof(VkExtensionProperties) * extensionCount);
   vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, extensions);
 
-
   if (!verfityExtensionSupport(
         extensionCount,
         extensions,
         glfwExtensionCount,
         glfwExtensions)) {
     printf("Missing extension support!\n");
+    free(extensions);
     exit(1);
   }
+  free(extensions);
+}
+
+bool checkValidationLayerSupport() {
+  u32 layerCount;
+  vkEnumerateInstanceLayerProperties(&layerCount, NULL);
+
+  VkLayerProperties *availableLayers = (VkLayerProperties*)malloc(sizeof(VkLayerProperties) * layerCount);
+  vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
+
+  for (int i = 0; i < validationLayerCount; i++) {
+    bool layerFound = false;
+    for (int j = 0; j < layerCount; j++) {
+      if (strcmp(availableLayers[j].layerName, validationLayers[i]) == 0) {
+        layerFound = true;
+        break;
+      }
+    }
+    if (!layerFound) {
+      free(availableLayers);
+      return false;
+    }
+  }
+
+  free(availableLayers);
+  return true;
 }
