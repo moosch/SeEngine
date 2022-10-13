@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -67,6 +68,23 @@ void cleanup(App *pApp) {
   glfwTerminate();
 }
 
+bool verfityExtensionSupport(
+  u32 extensionCount,
+  VkExtensionProperties *extensions,
+  u32 glfwExtensionCount,
+  const char** glfwExtensions) {
+  u32 foundExtensions = 0;
+  for (int i = 0; i < glfwExtensionCount; i++) {
+    for (int j = 0; j < extensionCount; j++) {
+      if (strcmp(extensions[j].extensionName, glfwExtensions[i]) == 0) {
+        foundExtensions++;
+      }
+    }
+  }
+
+  return foundExtensions == glfwExtensionCount;
+}
+
 void createInstance(App *pApp) {
   VkApplicationInfo appInfo = {
     .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -93,6 +111,22 @@ void createInstance(App *pApp) {
 
   if (vkCreateInstance(&createInfo, NULL, &pApp->instance) != VK_SUCCESS) {
     printf("Failed to create Vulkan Instance\n");
+    exit(1);
+  }
+
+  u32 extensionCount = 0;
+  vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, NULL);
+
+  VkExtensionProperties *extensions = (VkExtensionProperties*)malloc(sizeof(VkExtensionProperties) * extensionCount);
+  vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, extensions);
+
+
+  if (!verfityExtensionSupport(
+        extensionCount,
+        extensions,
+        glfwExtensionCount,
+        glfwExtensions)) {
+    printf("Missing extension support!\n");
     exit(1);
   }
 }
