@@ -32,6 +32,10 @@ typedef struct App {
   VkDebugUtilsMessengerEXT debugMessenger;
   VkPhysicalDevice physicalDevice;
 } App;
+typedef struct QueueFamilyIndices {
+  u32 graphicsFamily;
+  bool isGraphicsFamilySet;
+} QueueFamilyIndices;
 
 void initWindow(App *pApp);
 void initVulkan(App *pApp);
@@ -65,6 +69,8 @@ void setupDebugMessenger(App *pApp);
 void pickPhysicalDevice(App *pApp);
 
 u32 rateDeviceSuitability(VkPhysicalDevice device);
+
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
 
 int main(void) {
   App app = {0};
@@ -256,7 +262,34 @@ u32 rateDeviceSuitability(VkPhysicalDevice device) {
     score = 0;
   }
 
+  // Check device supports required queue families
+  QueueFamilyIndices indices = findQueueFamilies(device);
+  if (!indices.isGraphicsFamilySet) {
+    printf("Queue Family not supported!\n");
+    score = 0;
+  }
+
   return score;
+}
+
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+  QueueFamilyIndices indices = {0};
+
+  u32 queueFamilyCount = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, NULL);
+
+  VkQueueFamilyProperties queueFamilyProperties[queueFamilyCount];
+  vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilyProperties);
+
+  for (int i = 0; i < queueFamilyCount; i++) {
+    if (queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+      indices.graphicsFamily = i;
+      indices.isGraphicsFamilySet = true;
+      break;
+    }
+  }
+
+  return indices;
 }
 
 bool checkValidationLayerSupport() {
