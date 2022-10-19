@@ -30,6 +30,7 @@ typedef struct App {
   GLFWwindow *window;
   VkInstance instance;
   VkDebugUtilsMessengerEXT debugMessenger;
+  VkPhysicalDevice physicalDevice;
 } App;
 
 void initWindow(App *pApp);
@@ -61,6 +62,10 @@ void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT *create
 
 void setupDebugMessenger(App *pApp);
 
+void pickPhysicalDevice(App *pApp);
+
+u32 rateDeviceSuitability(VkPhysicalDevice device);
+
 int main(void) {
   App app = {0};
 
@@ -84,6 +89,7 @@ void initWindow(App *pApp) {
 void initVulkan(App *pApp) {
   createInstance(pApp);
   setupDebugMessenger(pApp);
+  pickPhysicalDevice(pApp);
 }
 
 void mainLoop(App *pApp) {
@@ -195,6 +201,62 @@ void createInstance(App *pApp) {
     printf("Missing extension support!\n");
     exit(1);
   }
+}
+
+void pickPhysicalDevice(App *pApp) {
+  u32 deviceCount = 0;
+  vkEnumeratePhysicalDevices(pApp->instance, &deviceCount, NULL);
+
+  if (deviceCount == 0) {
+    printf("Failed to find a GPU with Vulkan support!\n");
+    exit(3);
+  }
+
+  VkPhysicalDevice devices[deviceCount];
+  vkEnumeratePhysicalDevices(pApp->instance, &deviceCount, devices);
+
+  VkPhysicalDevice device;
+  if (device == NULL) printf("Device starts as NULL\n");
+
+  u32 deviceScore = 0;
+  for (int i = 0; i < deviceCount; i++) {
+    u32 score = rateDeviceSuitability(devices[i]);
+    if (score > deviceScore) {
+      deviceScore = score;
+      device = devices[i];
+    }
+  }
+
+  if (device == NULL) {
+    printf("Failed to find a stuitable GPU!\n");
+    exit(3);
+  }
+  pApp->physicalDevice = device;
+  printf("GPU selected\n");
+}
+
+u32 rateDeviceSuitability(VkPhysicalDevice device) {
+  VkPhysicalDeviceProperties deviceProperties;
+  VkPhysicalDeviceFeatures deviceFeatures;
+  vkGetPhysicalDeviceProperties(device, &deviceProperties);
+  vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+  u32 score = 0;
+
+  // Discrete GPUs have a significant performance advantage
+  if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+    score += 1000;
+  }
+
+  // Maximum possible size of textures affects graphics quality
+  score += deviceProperties.limits.maxImageDimension2D;
+
+  // Applications can't function without geometry shaders
+  if (!deviceFeatures.geometryShader) {
+    score = 0;
+  }
+
+  return score;
 }
 
 bool checkValidationLayerSupport() {
