@@ -26,16 +26,20 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
+typedef struct QueueFamilyIndices {
+  u32 graphicsFamily;
+  bool isGraphicsFamilySet;
+} QueueFamilyIndices;
+
 typedef struct App {
   GLFWwindow *window;
   VkInstance instance;
   VkDebugUtilsMessengerEXT debugMessenger;
   VkPhysicalDevice physicalDevice;
+  QueueFamilyIndices queueFamilyIndices;
+  VkDevice device; // Logical device
+  VkQueue graphicsQueue;
 } App;
-typedef struct QueueFamilyIndices {
-  u32 graphicsFamily;
-  bool isGraphicsFamilySet;
-} QueueFamilyIndices;
 
 void initWindow(App *pApp);
 void initVulkan(App *pApp);
@@ -72,6 +76,8 @@ u32 rateDeviceSuitability(VkPhysicalDevice device);
 
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
 
+void createLogicalDevice(App *pApp);
+
 int main(void) {
   App app = {0};
 
@@ -96,6 +102,7 @@ void initVulkan(App *pApp) {
   createInstance(pApp);
   setupDebugMessenger(pApp);
   pickPhysicalDevice(pApp);
+  createLogicalDevice(pApp);
 }
 
 void mainLoop(App *pApp) {
@@ -108,6 +115,7 @@ void cleanup(App *pApp) {
   if (enableValidationLayers) {
     DestroyDebugUtilsMessengerEXT(pApp->instance, pApp->debugMessenger, NULL);
   }
+  vkDestroyDevice(pApp->device, NULL);
 
   vkDestroyInstance(pApp->instance, NULL);
 
@@ -239,6 +247,46 @@ void pickPhysicalDevice(App *pApp) {
   }
   pApp->physicalDevice = device;
   printf("GPU selected\n");
+
+  pApp->queueFamilyIndices = findQueueFamilies(device);
+}
+
+void createLogicalDevice(App *pApp) {
+  QueueFamilyIndices indices = findQueueFamilies(pApp->physicalDevice);
+
+  VkPhysicalDeviceFeatures deviceFeatures;
+  vkGetPhysicalDeviceFeatures(pApp->physicalDevice, &deviceFeatures);
+
+   VkDeviceQueueCreateInfo queueCreateInfo = {
+    .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+    .queueFamilyIndex = indices.graphicsFamily,
+    .queueCount = 1
+  };
+
+  float queuePriority = 1.0f;
+  queueCreateInfo.pQueuePriorities = &queuePriority;
+
+  VkDeviceCreateInfo createInfo = {
+    .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+    .pQueueCreateInfos = &queueCreateInfo,
+    .queueCreateInfoCount = 1,
+    .pEnabledFeatures = &deviceFeatures,
+    .enabledExtensionCount = 0
+  };
+
+  if (enableValidationLayers) {
+    createInfo.enabledLayerCount = validationLayerCount;
+    createInfo.ppEnabledLayerNames = validationLayers;
+  } else {
+    createInfo.enabledLayerCount = 0;
+  }
+
+  if (vkCreateDevice(pApp->physicalDevice, &createInfo, NULL, &pApp->device) != VK_SUCCESS) {
+    printf("Failed to create logical device!\n");
+    exit(4);
+  }
+
+  vkGetDeviceQueue(pApp->device, pApp->queueFamilyIndices.graphicsFamily, 0, &pApp->graphicsQueue);
 }
 
 u32 rateDeviceSuitability(VkPhysicalDevice device) {
