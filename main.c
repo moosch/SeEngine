@@ -140,9 +140,9 @@ bool verfityExtensionSupport(
   u32 glfwExtensionCount,
   const char** glfwExtensions) {
 
-  for (int i = 0; i < glfwExtensionCount; i++) {
+  for (u32 i = 0; i < glfwExtensionCount; i++) {
     bool extensionFound = false;
-    for (int j = 0; j < extensionCount; j++) {
+    for (u32 j = 0; j < extensionCount; j++) {
       if (strcmp(extensions[j].extensionName, glfwExtensions[i]) == 0) {
         extensionFound = true;
         break;
@@ -179,7 +179,7 @@ void createInstance(App *pApp) {
 
   const char *glfwExtensionsWithDebug[glfwExtensionCount+1];
 
-  for (int i = 0; i < glfwExtensionCount; i++) {
+  for (u32 i = 0; i < glfwExtensionCount; i++) {
     glfwExtensionsWithDebug[i] = glfwExtensions[i];
   }
   if (enableValidationLayers) {
@@ -248,10 +248,8 @@ void pickPhysicalDevice(App *pApp) {
   vkEnumeratePhysicalDevices(pApp->instance, &deviceCount, devices);
 
   VkPhysicalDevice device;
-  if (device == NULL) printf("Device starts as NULL\n");
-
   u32 deviceScore = 0;
-  for (int i = 0; i < deviceCount; i++) {
+  for (u32 i = 0; i < deviceCount; i++) {
     u32 score = rateDeviceSuitability(devices[i], pApp->surface);
     if (score > deviceScore) {
       deviceScore = score;
@@ -397,7 +395,7 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surfa
   VkQueueFamilyProperties queueFamilyProperties[queueFamilyCount];
   vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilyProperties);
 
-  for (int i = 0; i < queueFamilyCount; i++) {
+  for (u32 i = 0; i < queueFamilyCount; i++) {
     if (queueFamilyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
       indices.graphicsFamily = i;
       indices.isGraphicsFamilySet = true;
@@ -422,9 +420,9 @@ bool checkValidationLayerSupport() {
   VkLayerProperties availableLayers[layerCount];
   vkEnumerateInstanceLayerProperties(&layerCount, availableLayers);
 
-  for (int i = 0; i < validationLayerCount; i++) {
+  for (u32 i = 0; i < validationLayerCount; i++) {
     bool layerFound = false;
-    for (int j = 0; j < layerCount; j++) {
+    for (u32 j = 0; j < layerCount; j++) {
       if (strcmp(availableLayers[j].layerName, validationLayers[i]) == 0) {
         layerFound = true;
         break;
