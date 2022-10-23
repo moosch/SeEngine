@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <limits.h>
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -95,6 +96,8 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surfa
 void createLogicalDevice(App *pApp);
 
 SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
+
+u32 clamp_u32(u32 n, u32 min, u32 max);
 
 int main(void) {
   App app = {0};
@@ -383,6 +386,40 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurface
   return details;
 }
 
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(u32 formatCount, VkSurfaceFormatKHR *availableFormats) {
+  for (u32 i = 0; i < formatCount; i++) {
+    if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB && availableFormats[i].colorSpace == (VkColorSpaceKHR)VK_FORMAT_B8G8R8A8_SRGB) {
+      return availableFormats[i];
+    }
+  }
+  return availableFormats[0];
+}
+
+VkPresentModeKHR chooseSwapPresentMode(u32 presentModeCount, VkPresentModeKHR *availablePresentModes) {
+  for (u32 i = 0; i < presentModeCount; i++) {
+    if (availablePresentModes[i] == VK_PRESENT_MODE_MAILBOX_KHR) {
+      return availablePresentModes[i];
+    }
+  }
+  return VK_PRESENT_MODE_FIFO_KHR;
+}
+
+VkExtent2D chooseSwapExtent(GLFWwindow *window, VkSurfaceCapabilitiesKHR capabilities) {
+  if (capabilities.currentExtent.width != UINT_MAX) {
+    return capabilities.currentExtent;
+  } else {
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+
+    VkExtent2D actualExtent = { (u32)width, (u32)height };
+
+    actualExtent.width = clamp_u32(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+    actualExtent.height = clamp_u32(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+
+    return actualExtent;
+  }
+}
+
 u32 rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface) {
   VkPhysicalDeviceProperties deviceProperties;
   VkPhysicalDeviceFeatures deviceFeatures;
@@ -517,4 +554,10 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMes
   } else {
     return VK_ERROR_EXTENSION_NOT_PRESENT;
   }
+}
+
+u32 clamp_u32(u32 n, u32 min, u32 max) {
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
 }
