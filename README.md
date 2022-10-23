@@ -19,3 +19,8 @@ Setting up Vulkan by going through the [Vulkan Hello World Tutorial](https://vul
 * [VSCodium](https://vscodium.com) and/or [kDevelop](https://www.kdevelop.org) for debugging
 * [Emacs](https://www.gnu.org/software/emacs/)
 * Linux
+
+## Todos
+
+- [ ] Create error codes that map to ints for semantically exiting the program.
+- [ ] Create a top level `error` function to print any error and exit appropriately.

@@ -19,6 +19,8 @@ const u32 WIN_HEIGHT = 600;
 
 const u32 validationLayerCount = 1;
 const char *validationLayers[] = { "VK_LAYER_KHRONOS_validation" };
+const u32 deviceExtensionCount = 1;
+const char *deviceExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
@@ -306,7 +308,8 @@ void createLogicalDevice(App *pApp) {
     .pQueueCreateInfos = queues,
     .queueCreateInfoCount = 1,
     .pEnabledFeatures = &deviceFeatures,
-    .enabledExtensionCount = 0
+    .enabledExtensionCount = deviceExtensionCount,
+    .ppEnabledExtensionNames = deviceExtensions
   };
 
   if (enableValidationLayers) {
@@ -322,6 +325,28 @@ void createLogicalDevice(App *pApp) {
   }
 
   vkGetDeviceQueue(pApp->device, pApp->queueFamilyIndices.graphicsFamily, 0, &pApp->graphicsQueue);
+}
+
+bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
+  u32 extensionCount;
+  vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, NULL);
+  VkExtensionProperties availableExtensions[extensionCount];
+  vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, availableExtensions);
+
+  for (u32 i = 0; i < deviceExtensionCount; i++) {
+    bool extensionFound = false;
+    for (u32 j = 0; j < extensionCount; j++) {
+      if (strcmp(deviceExtensions[i], availableExtensions[j].extensionName) == 0) {
+        extensionFound = true;
+        break;
+      }
+    }
+    if (!extensionFound) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 u32 rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface) {
@@ -351,7 +376,13 @@ u32 rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface) {
   QueueFamilyIndices indices = findQueueFamilies(device, surface);
   if (!indices.isGraphicsFamilySet) {
     printf("Queue Family not supported!\n");
-    score = 0;
+    return 0;
+  }
+
+  bool extensionsSupported = checkDeviceExtensionSupport(device);
+  if (!extensionsSupported) {
+    printf("Required device extensions not supported!\n");
+    return 0;
   }
 
   return score;
