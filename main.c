@@ -28,6 +28,14 @@ const bool enableValidationLayers = false;
 const bool enableValidationLayers = true;
 #endif
 
+typedef struct SwapChainSupportDetails {
+  VkSurfaceCapabilitiesKHR capabilities;
+  u32 formatCount;
+  VkSurfaceFormatKHR *formats;
+  u32 presentModeCount;
+  VkPresentModeKHR *presentModes;
+} SwapChainSupportDetails;
+
 typedef struct QueueFamilyIndices {
   u32 graphicsFamily;
   bool isGraphicsFamilySet;
@@ -85,6 +93,8 @@ u32 rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface);
 QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
 
 void createLogicalDevice(App *pApp);
+
+SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
 
 int main(void) {
   App app = {0};
@@ -347,6 +357,32 @@ bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
   return true;
 }
 
+SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface) {
+  SwapChainSupportDetails details;
+
+  vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
+
+  u32 formatCount;
+  vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, NULL);
+  details.formatCount = formatCount;
+  if (formatCount != 0) {
+    VkSurfaceFormatKHR formats[formatCount];
+    details.formats = formats;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats);
+  }
+
+  u32 presentCount;
+  vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentCount, NULL);
+  details.presentModeCount = presentCount;
+  if (presentCount != 0) {
+    VkPresentModeKHR presentModes[presentCount];
+    details.presentModes = presentModes;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentCount, details.presentModes);
+  }
+
+  return details;
+}
+
 u32 rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface) {
   VkPhysicalDeviceProperties deviceProperties;
   VkPhysicalDeviceFeatures deviceFeatures;
@@ -380,6 +416,12 @@ u32 rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface) {
   bool extensionsSupported = checkDeviceExtensionSupport(device);
   if (!extensionsSupported) {
     printf("Required device extensions not supported!\n");
+    return 0;
+  }
+
+  SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device, surface);
+  if (swapChainSupport.formatCount == 0 || swapChainSupport.presentModeCount == 0) {
+    printf("Swap chain not adequately supported!\n");
     return 0;
   }
 
