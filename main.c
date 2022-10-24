@@ -54,6 +54,10 @@ typedef struct App {
   VkDevice device; // Logical device
   VkQueue graphicsQueue;
   VkQueue presentQueue;
+  VkSwapchainKHR swapChain;
+  VkImage *swapChainImages;
+  VkFormat swapChainImageFormat;
+  VkExtent2D swapChainExtent;
 } App;
 
 void initWindow(App *pApp);
@@ -97,6 +101,12 @@ void createLogicalDevice(App *pApp);
 
 SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface);
 
+VkPresentModeKHR chooseSwapPresentMode(u32 presentModeCount, VkPresentModeKHR *availablePresentModes);
+VkSurfaceFormatKHR chooseSwapSurfaceFormat(u32 formatCount, VkSurfaceFormatKHR *availableFormats);
+VkExtent2D chooseSwapExtent(GLFWwindow *window, VkSurfaceCapabilitiesKHR capabilities);
+
+void createSwapChain(App *pApp);
+
 u32 clamp_u32(u32 n, u32 min, u32 max);
 
 int main(void) {
@@ -125,6 +135,7 @@ void initVulkan(App *pApp) {
   createSurface(pApp);
   pickPhysicalDevice(pApp);
   createLogicalDevice(pApp);
+  createSwapChain(pApp);
 }
 
 void mainLoop(App *pApp) {
@@ -134,6 +145,8 @@ void mainLoop(App *pApp) {
 }
 
 void cleanup(App *pApp) {
+  vkDestroySwapchainKHR(pApp->device, pApp->swapChain, NULL);
+
   if (enableValidationLayers) {
     DestroyDebugUtilsMessengerEXT(pApp->instance, pApp->debugMessenger, NULL);
   }
@@ -338,6 +351,62 @@ void createLogicalDevice(App *pApp) {
   vkGetDeviceQueue(pApp->device, pApp->queueFamilyIndices.graphicsFamily, 0, &pApp->graphicsQueue);
 }
 
+void createSwapChain(App *pApp) {
+  SwapChainSupportDetails swapChainSupport = querySwapChainSupport(pApp->physicalDevice, pApp->surface);
+
+  VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formatCount, swapChainSupport.formats);
+  VkPresentModeKHR presentMode = chooseSwapPresentMode(swapChainSupport.presentModeCount, swapChainSupport.presentModes);
+  VkExtent2D extent = chooseSwapExtent(pApp->window, swapChainSupport.capabilities);
+
+  u32 imageCount = swapChainSupport.capabilities.minImageCount + 1;
+  if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
+    imageCount = swapChainSupport.capabilities.maxImageCount;
+  }
+
+  VkSwapchainCreateInfoKHR createInfo = {
+    .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+    .surface = pApp->surface,
+    .minImageCount = imageCount,
+    .imageFormat = surfaceFormat.format,
+    .imageColorSpace = surfaceFormat.colorSpace,
+    .imageExtent = extent,
+    .imageArrayLayers = 1,
+    .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+  };
+
+  QueueFamilyIndices indices = findQueueFamilies(pApp->physicalDevice, pApp->surface);
+  u32 queueFamilyIndices[] = { indices.graphicsFamily, indices.presentFamily };
+
+  if (indices.graphicsFamily != indices.presentFamily) {
+    createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+    createInfo.queueFamilyIndexCount = 2;
+    createInfo.pQueueFamilyIndices = queueFamilyIndices;
+  } else {
+    createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    createInfo.queueFamilyIndexCount = 0; // Optional
+    createInfo.pQueueFamilyIndices = NULL; // Optional
+  }
+
+  createInfo.preTransform = swapChainSupport.capabilities.currentTransform;
+  createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  createInfo.presentMode = presentMode;
+  createInfo.clipped = VK_TRUE;
+  createInfo.oldSwapchain = VK_NULL_HANDLE;
+
+  if (vkCreateSwapchainKHR(pApp->device, &createInfo, NULL, &pApp->swapChain) != VK_SUCCESS) {
+    printf("Failed to create Swap Chain!\n");
+    exit(5);
+  }
+
+  vkGetSwapchainImagesKHR(pApp->device, pApp->swapChain, &imageCount, NULL);
+  VkImage swapChainImages[imageCount];
+  pApp->swapChainImages = swapChainImages;
+  vkGetSwapchainImagesKHR(pApp->device, pApp->swapChain, &imageCount, pApp->swapChainImages);
+
+  pApp->swapChainImageFormat = surfaceFormat.format;
+  pApp->swapChainExtent = extent;
+}
+
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
   u32 extensionCount;
   vkEnumerateDeviceExtensionProperties(device, NULL, &extensionCount, NULL);
@@ -368,18 +437,18 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurface
   u32 formatCount;
   vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, NULL);
   details.formatCount = formatCount;
+  VkSurfaceFormatKHR formats[formatCount];
+  details.formats = formats;
   if (formatCount != 0) {
-    VkSurfaceFormatKHR formats[formatCount];
-    details.formats = formats;
     vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats);
   }
 
   u32 presentCount;
   vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentCount, NULL);
   details.presentModeCount = presentCount;
+  VkPresentModeKHR presentModes[presentCount];
+  details.presentModes = presentModes;
   if (presentCount != 0) {
-    VkPresentModeKHR presentModes[presentCount];
-    details.presentModes = presentModes;
     vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentCount, details.presentModes);
   }
 
@@ -388,7 +457,7 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurface
 
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(u32 formatCount, VkSurfaceFormatKHR *availableFormats) {
   for (u32 i = 0; i < formatCount; i++) {
-    if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB && availableFormats[i].colorSpace == (VkColorSpaceKHR)VK_FORMAT_B8G8R8A8_SRGB) {
+    if (availableFormats[i].format == VK_FORMAT_B8G8R8A8_SRGB && availableFormats[i].colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
       return availableFormats[i];
     }
   }
