@@ -55,9 +55,11 @@ typedef struct App {
   VkQueue graphicsQueue;
   VkQueue presentQueue;
   VkSwapchainKHR swapChain;
+  u32 swapChainImageCount;
   VkImage *swapChainImages;
   VkFormat swapChainImageFormat;
   VkExtent2D swapChainExtent;
+  VkImageView *swapChainImageViews;
 } App;
 
 void initWindow(App *pApp);
@@ -107,6 +109,8 @@ VkExtent2D chooseSwapExtent(GLFWwindow *window, VkSurfaceCapabilitiesKHR capabil
 
 void createSwapChain(App *pApp);
 
+void createImageViews(App *pApp);
+
 u32 clamp_u32(u32 n, u32 min, u32 max);
 
 int main(void) {
@@ -136,6 +140,7 @@ void initVulkan(App *pApp) {
   pickPhysicalDevice(pApp);
   createLogicalDevice(pApp);
   createSwapChain(pApp);
+  createImageViews(pApp);
 }
 
 void mainLoop(App *pApp) {
@@ -145,6 +150,10 @@ void mainLoop(App *pApp) {
 }
 
 void cleanup(App *pApp) {
+  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
+    vkDestroyImageView(pApp->device, pApp->swapChainImageViews[i], NULL);
+  }
+
   vkDestroySwapchainKHR(pApp->device, pApp->swapChain, NULL);
 
   if (enableValidationLayers) {
@@ -399,12 +408,40 @@ void createSwapChain(App *pApp) {
   }
 
   vkGetSwapchainImagesKHR(pApp->device, pApp->swapChain, &imageCount, NULL);
-  VkImage swapChainImages[imageCount];
-  pApp->swapChainImages = swapChainImages;
+  pApp->swapChainImages = (VkImage*)malloc(sizeof(VkImage) * imageCount);
+
   vkGetSwapchainImagesKHR(pApp->device, pApp->swapChain, &imageCount, pApp->swapChainImages);
+  pApp->swapChainImageCount = imageCount;
 
   pApp->swapChainImageFormat = surfaceFormat.format;
   pApp->swapChainExtent = extent;
+}
+
+void createImageViews(App *pApp) {
+  pApp->swapChainImageViews = (VkImageView*)malloc(sizeof(VkImageView) * pApp->swapChainImageCount);
+
+  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
+    VkImageViewCreateInfo createInfo ={
+      .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+      .image = pApp->swapChainImages[i],
+      .viewType = VK_IMAGE_VIEW_TYPE_2D,
+      .format = pApp->swapChainImageFormat,
+      .components.r = VK_COMPONENT_SWIZZLE_IDENTITY,
+      .components.g = VK_COMPONENT_SWIZZLE_IDENTITY,
+      .components.b = VK_COMPONENT_SWIZZLE_IDENTITY,
+      .components.a = VK_COMPONENT_SWIZZLE_IDENTITY,
+      .subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+      .subresourceRange.baseMipLevel = 0,
+      .subresourceRange.levelCount = 1,
+      .subresourceRange.baseArrayLayer = 0,
+      .subresourceRange.layerCount = 1
+    };
+
+    if (vkCreateImageView(pApp->device, &createInfo, NULL, &pApp->swapChainImageViews[i]) != VK_SUCCESS) {
+      printf("Failed to create image views!\n");
+      exit(6);
+    }
+  }
 }
 
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
