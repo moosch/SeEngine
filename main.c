@@ -111,6 +111,8 @@ void createSwapChain(App *pApp);
 
 void createImageViews(App *pApp);
 
+void createGraphicsPipeline(App *pApp);
+
 u32 clamp_u32(u32 n, u32 min, u32 max);
 
 int main(void) {
@@ -141,6 +143,7 @@ void initVulkan(App *pApp) {
   createLogicalDevice(pApp);
   createSwapChain(pApp);
   createImageViews(pApp);
+  createGraphicsPipeline(pApp);
 }
 
 void mainLoop(App *pApp) {
@@ -421,7 +424,7 @@ void createImageViews(App *pApp) {
   pApp->swapChainImageViews = (VkImageView*)malloc(sizeof(VkImageView) * pApp->swapChainImageCount);
 
   for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
-    VkImageViewCreateInfo createInfo ={
+    VkImageViewCreateInfo createInfo = {
       .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
       .image = pApp->swapChainImages[i],
       .viewType = VK_IMAGE_VIEW_TYPE_2D,
@@ -442,6 +445,65 @@ void createImageViews(App *pApp) {
       exit(6);
     }
   }
+}
+
+typedef struct ShaderFile {
+  size_t size;
+  char *code;
+} ShaderFile;
+
+VkShaderModule createShaderModule(App *pApp, ShaderFile *shaderFile) {
+  VkShaderModuleCreateInfo createInfo = {
+    .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+    .codeSize = shaderFile->size,
+    .pCode = (u32*)shaderFile->code
+  };
+
+  VkShaderModule shaderModule;
+  if (vkCreateShaderModule(pApp->device, &createInfo, NULL, &shaderModule) != VK_SUCCESS) {
+    printf("failed to create shader module!\n");
+    exit(7);
+  }
+
+  return shaderModule;
+}
+
+void readFile(const char *filename, ShaderFile *shader) {
+  FILE *pFile;
+
+  pFile = fopen(filename, "rb");
+  if (pFile == NULL) {
+    printf("Failed to open %s\n", filename);
+    exit(7);
+  }
+
+  fseek(pFile, 0L, SEEK_END);
+
+  shader->size = ftell(pFile);
+
+  fseek(pFile, 0L, SEEK_SET);
+
+  printf("%s size = %ld\n", filename, shader->size);
+
+  shader->code = (char*)malloc(sizeof(char) * shader->size);
+  size_t readCount = fread(shader->code, shader->size, sizeof(char), pFile);
+  printf("ReadCount: %ld\n", readCount);
+
+  fclose(pFile);
+}
+
+void createGraphicsPipeline(App *pApp) {
+  ShaderFile vertShaderCode = {0};
+  ShaderFile fragShaderCode = {0};
+  readFile("shaders/vert.spv", &vertShaderCode);
+  readFile("shaders/frag.spv", &fragShaderCode);
+
+  VkShaderModule vertShaderModule = createShaderModule(pApp, &vertShaderCode);
+  VkShaderModule fragShaderModule = createShaderModule(pApp, &fragShaderCode);
+
+
+  vkDestroyShaderModule(pApp->device, fragShaderModule, NULL);
+  vkDestroyShaderModule(pApp->device, vertShaderModule, NULL);
 }
 
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
