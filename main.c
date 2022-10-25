@@ -60,6 +60,7 @@ typedef struct App {
   VkFormat swapChainImageFormat;
   VkExtent2D swapChainExtent;
   VkImageView *swapChainImageViews;
+  VkPipelineLayout pipelineLayout;
 } App;
 
 void initWindow(App *pApp);
@@ -153,6 +154,8 @@ void mainLoop(App *pApp) {
 }
 
 void cleanup(App *pApp) {
+  vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
+
   for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
     vkDestroyImageView(pApp->device, pApp->swapChainImageViews[i], NULL);
   }
@@ -478,12 +481,9 @@ void readFile(const char *filename, ShaderFile *shader) {
   }
 
   fseek(pFile, 0L, SEEK_END);
-
   shader->size = ftell(pFile);
 
   fseek(pFile, 0L, SEEK_SET);
-
-  printf("%s size = %ld\n", filename, shader->size);
 
   shader->code = (char*)malloc(sizeof(char) * shader->size);
   size_t readCount = fread(shader->code, shader->size, sizeof(char), pFile);
@@ -493,15 +493,139 @@ void readFile(const char *filename, ShaderFile *shader) {
 }
 
 void createGraphicsPipeline(App *pApp) {
-  ShaderFile vertShaderCode = {0};
-  ShaderFile fragShaderCode = {0};
-  readFile("shaders/vert.spv", &vertShaderCode);
-  readFile("shaders/frag.spv", &fragShaderCode);
+  ShaderFile vertShader = {0};
+  ShaderFile fragShader = {0};
+  readFile("shaders/vert.spv", &vertShader);
+  readFile("shaders/frag.spv", &fragShader);
 
-  VkShaderModule vertShaderModule = createShaderModule(pApp, &vertShaderCode);
-  VkShaderModule fragShaderModule = createShaderModule(pApp, &fragShaderCode);
+  VkShaderModule vertShaderModule = createShaderModule(pApp, &vertShader);
+  VkShaderModule fragShaderModule = createShaderModule(pApp, &fragShader);
+
+  VkPipelineShaderStageCreateInfo vertShaderStageInfo = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+    .stage = VK_SHADER_STAGE_VERTEX_BIT,
+    .module = vertShaderModule,
+    .pName = "main"
+    //.pSpecializationInfo = NULL
+  };
+
+  VkPipelineShaderStageCreateInfo fragShaderStageInfo = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+    .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
+    .module = fragShaderModule,
+    .pName = "main"
+  };
+
+  VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
+
+  VkPipelineVertexInputStateCreateInfo vertexInputInfo = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+    .vertexBindingDescriptionCount = 0,
+    .pVertexBindingDescriptions = NULL, // Optional
+    .vertexAttributeDescriptionCount = 0,
+    .pVertexAttributeDescriptions = NULL // Optional
+  };
+
+  u32 dynamicStatesSize = 2;
+  VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+
+  VkPipelineDynamicStateCreateInfo dynamicState = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+    .dynamicStateCount = dynamicStatesSize,
+    .pDynamicStates = dynamicStates
+  };
+
+  VkPipelineInputAssemblyStateCreateInfo inputAssembly = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+    .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+    .primitiveRestartEnable = VK_FALSE
+  };
+
+  VkViewport viewport = {
+    .x = 0.0f,
+    .y = 0.0f,
+    .width = (float)pApp->swapChainExtent.width,
+    .height = (float)pApp->swapChainExtent.height,
+    .minDepth = 0.0f,
+    .maxDepth = 1.0f
+  };
+
+  VkRect2D scissor = {
+    .offset = {0, 0},
+    .extent = pApp->swapChainExtent
+  };
+
+  VkPipelineViewportStateCreateInfo viewportState = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+    .viewportCount = 1,
+    .pViewports = &viewport,
+    .scissorCount = 1,
+    .pScissors = &scissor
+  };
+
+  VkPipelineRasterizationStateCreateInfo rasterize = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+    .depthClampEnable = VK_FALSE,
+    .rasterizerDiscardEnable = VK_FALSE,
+    .polygonMode = VK_POLYGON_MODE_FILL,
+    .lineWidth = 1.0f,
+    .cullMode = VK_CULL_MODE_BACK_BIT,
+    .frontFace = VK_FRONT_FACE_CLOCKWISE,
+    .depthBiasEnable = VK_FALSE,
+    .depthBiasConstantFactor = 0.0f, // Optional
+    .depthBiasClamp = 0.0f, // Optional
+    .depthBiasSlopeFactor = 0.0f // Optional
+  };
+
+  VkPipelineMultisampleStateCreateInfo multisampling = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+    .sampleShadingEnable = VK_FALSE,
+    .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+    .minSampleShading = 1.0f, // Optional
+    .pSampleMask = NULL, // Optional
+    .alphaToCoverageEnable = VK_FALSE, // Optional
+    .alphaToOneEnable = VK_FALSE // Optional
+  };
+
+  VkPipelineColorBlendAttachmentState colorBlendAttachment = {
+    .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+    .blendEnable = VK_FALSE,
+    .srcColorBlendFactor = VK_BLEND_FACTOR_ONE, // Optional
+    .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO, // Optional
+    .colorBlendOp = VK_BLEND_OP_ADD, // Optional
+    .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE, // Optional
+    .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO, // Optional
+    .alphaBlendOp = VK_BLEND_OP_ADD // Optional
+  };
+
+  VkPipelineColorBlendStateCreateInfo colorBlending = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+    .logicOpEnable = VK_FALSE,
+    .logicOp = VK_LOGIC_OP_COPY, // Optional
+    .attachmentCount = 1,
+    .pAttachments = &colorBlendAttachment,
+    .blendConstants[0] = 0.0f, // Optional
+    .blendConstants[1] = 0.0f, // Optional
+    .blendConstants[2] = 0.0f, // Optional
+    .blendConstants[3] = 0.0f // Optional
+  };
+
+  VkPipelineLayoutCreateInfo pipelineLayoutInfo = {
+    .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+    .setLayoutCount = 0, // Optional
+    .pSetLayouts = NULL, // Optional
+    .pushConstantRangeCount = 0, // Optional
+    .pPushConstantRanges = NULL // Optional
+  };
+
+ if (vkCreatePipelineLayout(pApp->device, &pipelineLayoutInfo, NULL, &pApp->pipelineLayout) != VK_SUCCESS) {
+   printf("failed to create pipeline layout!");
+   exit(7);
+ }
 
 
+  free(vertShader.code);
+  free(fragShader.code);
   vkDestroyShaderModule(pApp->device, fragShaderModule, NULL);
   vkDestroyShaderModule(pApp->device, vertShaderModule, NULL);
 }
