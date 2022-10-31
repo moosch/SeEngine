@@ -63,6 +63,9 @@ typedef struct App {
   VkRenderPass renderPass;
   VkPipelineLayout pipelineLayout;
   VkPipeline graphicsPipeline;
+  VkFramebuffer *swapChainFramebuffers;
+  VkCommandPool commandPool;
+  VkCommandBuffer commandBuffer;
 } App;
 
 void initWindow(App *pApp);
@@ -118,6 +121,11 @@ void createRenderPass(App *pApp);
 
 void createGraphicsPipeline(App *pApp);
 
+void createFramebuffers(App *pApp);
+
+void createCommandPool(App *pApp);
+void createCommandBuffer(App *pApp);
+
 u32 clamp_u32(u32 n, u32 min, u32 max);
 
 int main(void) {
@@ -150,6 +158,9 @@ void initVulkan(App *pApp) {
   createImageViews(pApp);
   createRenderPass(pApp);
   createGraphicsPipeline(pApp);
+  createFramebuffers(pApp);
+  createCommandPool(pApp);
+  createCommandBuffer(pApp);
 }
 
 void mainLoop(App *pApp) {
@@ -159,6 +170,12 @@ void mainLoop(App *pApp) {
 }
 
 void cleanup(App *pApp) {
+  vkDestroyCommandPool(pApp->device, pApp->commandPool, NULL);
+
+  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
+    vkDestroyFramebuffer(pApp->device, pApp->swapChainFramebuffers[i], NULL);
+  }
+
   vkDestroyPipeline(pApp->device, pApp->graphicsPipeline, NULL);
   vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
   vkDestroyRenderPass(pApp->device, pApp->renderPass, NULL);
@@ -691,6 +708,108 @@ void createGraphicsPipeline(App *pApp) {
   free(fragShader.code);
   vkDestroyShaderModule(pApp->device, fragShaderModule, NULL);
   vkDestroyShaderModule(pApp->device, vertShaderModule, NULL);
+}
+
+void createFramebuffers(App *pApp) {
+  pApp->swapChainFramebuffers = (VkFramebuffer*)malloc(pApp->swapChainImageCount * sizeof(VkFramebuffer));
+
+  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
+    VkImageView attachments[] = { pApp->swapChainImageViews[i] };
+
+    VkFramebufferCreateInfo framebufferInfo = {};
+    framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    framebufferInfo.renderPass = pApp->renderPass;
+    framebufferInfo.attachmentCount = 1;
+    framebufferInfo.pAttachments = attachments;
+    framebufferInfo.width = pApp->swapChainExtent.width;
+    framebufferInfo.height = pApp->swapChainExtent.height;
+    framebufferInfo.layers = 1;
+
+    if (vkCreateFramebuffer(pApp->device, &framebufferInfo, NULL, &pApp->swapChainFramebuffers[i]) != VK_SUCCESS) {
+      printf("failed to create framebuffer!\n");
+      exit(10);
+    }
+  }
+}
+
+void recordCommandBuffer(App *pApp, VkCommandBuffer commandBuffer, u32 imageIndex) {
+  VkCommandBufferBeginInfo beginInfo = {};
+  beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  beginInfo.flags = 0; // Optional
+  beginInfo.pInheritanceInfo = NULL; // Optional
+
+  if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
+    printf("failed to begin recording command buffer!\n");
+    exit(13);
+  }
+
+  VkRenderPassBeginInfo renderPassInfo = {};
+  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+  renderPassInfo.renderPass = pApp->renderPass;
+  renderPassInfo.framebuffer = pApp->swapChainFramebuffers[imageIndex];
+  renderPassInfo.renderArea.offset.x = 0;
+  renderPassInfo.renderArea.offset.y = 0;
+  renderPassInfo.renderArea.extent = pApp->swapChainExtent;
+
+  VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+  renderPassInfo.clearValueCount = 1;
+  renderPassInfo.pClearValues = &clearColor;
+
+  vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+  vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pApp->graphicsPipeline);
+
+
+  VkViewport viewport = {};
+  viewport.x = 0.0f;
+  viewport.y = 0.0f;
+  viewport.width = (float)pApp->swapChainExtent.width;
+  viewport.height = (float)pApp->swapChainExtent.height;
+  viewport.minDepth = 0.0f;
+  viewport.maxDepth = 1.0f;
+  vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+  VkRect2D scissor= {};
+  scissor.offset.x = 0;
+  scissor.offset.y = 0;
+  scissor.extent = pApp->swapChainExtent;
+  vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+  vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+
+  vkCmdEndRenderPass(commandBuffer);
+
+  if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
+    printf("failed to record command buffer!\n");
+    exit(14);
+  }
+}
+
+void createCommandPool(App *pApp) {
+  QueueFamilyIndices indices = findQueueFamilies(pApp->physicalDevice, pApp->surface);
+
+  VkCommandPoolCreateInfo poolInfo = {};
+  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  poolInfo.queueFamilyIndex = indices.graphicsFamily;
+
+  if (vkCreateCommandPool(pApp->device, &poolInfo, NULL, &pApp->commandPool) != VK_SUCCESS) {
+    printf("failed to create command pool!\n");
+    exit(11);
+  }
+}
+
+void createCommandBuffer(App *pApp) {
+  VkCommandBufferAllocateInfo allocInfo = {};
+  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  allocInfo.commandPool = pApp->commandPool;
+  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  allocInfo.commandBufferCount = 1;
+
+  if (vkAllocateCommandBuffers(pApp->device, &allocInfo, &pApp->commandBuffer) != VK_SUCCESS) {
+    printf("failed to allocate command buffers!\n");
+    exit(12);
+  }
 }
 
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
