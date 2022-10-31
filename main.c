@@ -60,7 +60,9 @@ typedef struct App {
   VkFormat swapChainImageFormat;
   VkExtent2D swapChainExtent;
   VkImageView *swapChainImageViews;
+  VkRenderPass renderPass;
   VkPipelineLayout pipelineLayout;
+  VkPipeline graphicsPipeline;
 } App;
 
 void initWindow(App *pApp);
@@ -112,6 +114,8 @@ void createSwapChain(App *pApp);
 
 void createImageViews(App *pApp);
 
+void createRenderPass(App *pApp);
+
 void createGraphicsPipeline(App *pApp);
 
 u32 clamp_u32(u32 n, u32 min, u32 max);
@@ -144,6 +148,7 @@ void initVulkan(App *pApp) {
   createLogicalDevice(pApp);
   createSwapChain(pApp);
   createImageViews(pApp);
+  createRenderPass(pApp);
   createGraphicsPipeline(pApp);
 }
 
@@ -154,7 +159,9 @@ void mainLoop(App *pApp) {
 }
 
 void cleanup(App *pApp) {
+  vkDestroyPipeline(pApp->device, pApp->graphicsPipeline, NULL);
   vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
+  vkDestroyRenderPass(pApp->device, pApp->renderPass, NULL);
 
   for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
     vkDestroyImageView(pApp->device, pApp->swapChainImageViews[i], NULL);
@@ -492,6 +499,39 @@ void readFile(const char *filename, ShaderFile *shader) {
   fclose(pFile);
 }
 
+void createRenderPass(App *pApp) {
+  VkAttachmentDescription colorAttachment = {};
+  colorAttachment.format = pApp->swapChainImageFormat;
+  colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
+  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+  VkAttachmentReference colorAttachmentRef = {};
+  colorAttachmentRef.attachment = 0;
+  colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+  VkSubpassDescription subpass = {};
+  subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+  subpass.colorAttachmentCount = 1;
+  subpass.pColorAttachments = &colorAttachmentRef;
+
+  VkRenderPassCreateInfo renderPassInfo = {};
+  renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+  renderPassInfo.attachmentCount = 1;
+  renderPassInfo.pAttachments = &colorAttachment;
+  renderPassInfo.subpassCount = 1;
+  renderPassInfo.pSubpasses = &subpass;
+
+  if (vkCreateRenderPass(pApp->device, &renderPassInfo, NULL, &pApp->renderPass) != VK_SUCCESS) {
+    printf("failed to create render pass!\n");
+    exit(8);
+  }
+}
+
 void createGraphicsPipeline(App *pApp) {
   ShaderFile vertShader = {0};
   ShaderFile fragShader = {0};
@@ -563,7 +603,7 @@ void createGraphicsPipeline(App *pApp) {
     .pScissors = &scissor
   };
 
-  VkPipelineRasterizationStateCreateInfo rasterize = {
+  VkPipelineRasterizationStateCreateInfo rasterizer = {
     .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
     .depthClampEnable = VK_FALSE,
     .rasterizerDiscardEnable = VK_FALSE,
@@ -618,11 +658,34 @@ void createGraphicsPipeline(App *pApp) {
     .pPushConstantRanges = NULL // Optional
   };
 
- if (vkCreatePipelineLayout(pApp->device, &pipelineLayoutInfo, NULL, &pApp->pipelineLayout) != VK_SUCCESS) {
-   printf("failed to create pipeline layout!");
-   exit(7);
- }
+  if (vkCreatePipelineLayout(pApp->device, &pipelineLayoutInfo, NULL, &pApp->pipelineLayout) != VK_SUCCESS) {
+    printf("failed to create pipeline layout!");
+    exit(7);
+  }
 
+  VkGraphicsPipelineCreateInfo pipelineInfo = {};
+  pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+  pipelineInfo.stageCount = 2;
+  pipelineInfo.flags = 0;
+  pipelineInfo.pStages = shaderStages;
+  pipelineInfo.pVertexInputState = &vertexInputInfo;
+  pipelineInfo.pInputAssemblyState = &inputAssembly;
+  pipelineInfo.pViewportState = &viewportState;
+  pipelineInfo.pRasterizationState = &rasterizer;
+  pipelineInfo.pMultisampleState = &multisampling;
+  pipelineInfo.pDepthStencilState = NULL; // Optional
+  pipelineInfo.pColorBlendState = &colorBlending;
+  pipelineInfo.pDynamicState = &dynamicState;
+  pipelineInfo.layout = pApp->pipelineLayout;
+  pipelineInfo.renderPass = pApp->renderPass;
+  pipelineInfo.subpass = 0;
+  pipelineInfo.basePipelineHandle = VK_NULL_HANDLE; // Optional
+  pipelineInfo.basePipelineIndex = -1; // Optional
+
+  if (vkCreateGraphicsPipelines(pApp->device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pApp->graphicsPipeline) != VK_SUCCESS) {
+    printf("Failed to create graphics pipeline!\n");
+    exit(9);
+  }
 
   free(vertShader.code);
   free(fragShader.code);
