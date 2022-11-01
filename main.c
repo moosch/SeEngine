@@ -66,6 +66,9 @@ typedef struct App {
   VkFramebuffer *swapChainFramebuffers;
   VkCommandPool commandPool;
   VkCommandBuffer commandBuffer;
+  VkSemaphore imageAvailableSemaphore;
+  VkSemaphore renderFinishedSemaphore;
+  VkFence inFlightFence;
 } App;
 
 void initWindow(App *pApp);
@@ -126,6 +129,10 @@ void createFramebuffers(App *pApp);
 void createCommandPool(App *pApp);
 void createCommandBuffer(App *pApp);
 
+void createSyncObjects(App *pApp);
+
+void drawFrame(App *pApp);
+
 u32 clamp_u32(u32 n, u32 min, u32 max);
 
 int main(void) {
@@ -161,15 +168,23 @@ void initVulkan(App *pApp) {
   createFramebuffers(pApp);
   createCommandPool(pApp);
   createCommandBuffer(pApp);
+  createSyncObjects(pApp);
 }
 
 void mainLoop(App *pApp) {
   while (!glfwWindowShouldClose(pApp->window)) {
     glfwPollEvents();
+    drawFrame(pApp);
   }
+
+  vkDeviceWaitIdle(pApp->device);
 }
 
 void cleanup(App *pApp) {
+  vkDestroySemaphore(pApp->device, pApp->imageAvailableSemaphore, NULL);
+  vkDestroySemaphore(pApp->device, pApp->renderFinishedSemaphore, NULL);
+  vkDestroyFence(pApp->device, pApp->inFlightFence, NULL);
+
   vkDestroyCommandPool(pApp->device, pApp->commandPool, NULL);
 
   for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
@@ -332,7 +347,7 @@ void pickPhysicalDevice(App *pApp) {
   pApp->queueFamilyIndices = findQueueFamilies(device, pApp->surface);
 }
 
-void getFamilyDeviceQueues(VkDeviceQueueCreateInfo *queues, QueueFamilyIndices indices, VkPhysicalDeviceFeatures deviceFeatures) {
+void getFamilyDeviceQueues(VkDeviceQueueCreateInfo *queues, QueueFamilyIndices indices) {
   // GraphicsQueue
   VkDeviceQueueCreateInfo graphicsQueueCreateInfo = {
     .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -363,7 +378,7 @@ void createLogicalDevice(App *pApp) {
   vkGetPhysicalDeviceFeatures(pApp->physicalDevice, &deviceFeatures);
 
   VkDeviceQueueCreateInfo queues[2];
-  getFamilyDeviceQueues(queues, indices, deviceFeatures);
+  getFamilyDeviceQueues(queues, indices);
 
   VkDeviceCreateInfo createInfo = {
     .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
@@ -388,6 +403,7 @@ void createLogicalDevice(App *pApp) {
   }
 
   vkGetDeviceQueue(pApp->device, pApp->queueFamilyIndices.graphicsFamily, 0, &pApp->graphicsQueue);
+  vkGetDeviceQueue(pApp->device, pApp->queueFamilyIndices.presentFamily, 0, &pApp->presentQueue);
 }
 
 void createSwapChain(App *pApp) {
@@ -536,12 +552,22 @@ void createRenderPass(App *pApp) {
   subpass.colorAttachmentCount = 1;
   subpass.pColorAttachments = &colorAttachmentRef;
 
+  VkSubpassDependency dependency = {};
+  dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+  dependency.dstSubpass = 0;
+  dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependency.srcAccessMask = 0;
+  dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
   VkRenderPassCreateInfo renderPassInfo = {};
   renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
   renderPassInfo.attachmentCount = 1;
   renderPassInfo.pAttachments = &colorAttachment;
   renderPassInfo.subpassCount = 1;
   renderPassInfo.pSubpasses = &subpass;
+  renderPassInfo.dependencyCount = 1;
+  renderPassInfo.pDependencies = &dependency;
 
   if (vkCreateRenderPass(pApp->device, &renderPassInfo, NULL, &pApp->renderPass) != VK_SUCCESS) {
     printf("failed to create render pass!\n");
@@ -810,6 +836,76 @@ void createCommandBuffer(App *pApp) {
     printf("failed to allocate command buffers!\n");
     exit(12);
   }
+}
+
+void createSyncObjects(App *pApp) {
+  VkSemaphoreCreateInfo semaphoreInfo = {};
+  semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+  VkFenceCreateInfo fenceInfo = {};
+  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+  if (vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->imageAvailableSemaphore) != VK_SUCCESS) {
+    printf("Failed to create imageAvailableSemaphore!\n");
+    exit(15);
+  }
+  if (vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->renderFinishedSemaphore) != VK_SUCCESS) {
+    printf("Failed to create renderFinishedSemaphore!\n");
+    exit(15);
+  }
+  if (vkCreateFence(pApp->device, &fenceInfo, NULL, &pApp->inFlightFence) != VK_SUCCESS) {
+    printf("Failed to create fence!\n");
+    exit(15);
+  }
+}
+
+void drawFrame(App *pApp) {
+  vkWaitForFences(pApp->device, 1, &pApp->inFlightFence, VK_TRUE, UINT64_MAX);
+
+  vkResetFences(pApp->device, 1, &pApp->inFlightFence);
+
+  uint32_t imageIndex;
+  vkAcquireNextImageKHR(pApp->device, pApp->swapChain, UINT64_MAX, pApp->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+
+  vkResetCommandBuffer(pApp->commandBuffer, 0);
+  recordCommandBuffer(pApp, pApp->commandBuffer, imageIndex);
+
+  VkSubmitInfo submitInfo = {};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+  VkSemaphore waitSemaphores[] = { pApp->imageAvailableSemaphore };
+  VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+  submitInfo.waitSemaphoreCount = 1;
+  submitInfo.pWaitSemaphores = waitSemaphores;
+  submitInfo.pWaitDstStageMask = waitStages;
+
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &pApp->commandBuffer;
+
+  VkSemaphore signalSemaphores[] = { pApp->renderFinishedSemaphore };
+  submitInfo.signalSemaphoreCount = 1;
+  submitInfo.pSignalSemaphores = signalSemaphores;
+
+  if (vkQueueSubmit(pApp->graphicsQueue, 1, &submitInfo, pApp->inFlightFence) != VK_SUCCESS) {
+    printf("Failed to submit draw command buffer!\n");
+    exit(16);
+  }
+
+  VkPresentInfoKHR presentInfo = {};
+  presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+  presentInfo.waitSemaphoreCount = 1;
+  presentInfo.pWaitSemaphores = signalSemaphores;
+
+  VkSwapchainKHR swapChains[] = { pApp->swapChain };
+  presentInfo.swapchainCount = 1;
+  presentInfo.pSwapchains = swapChains;
+  presentInfo.pImageIndices = &imageIndex;
+
+  presentInfo.pResults = NULL; // Optional
+
+  vkQueuePresentKHR(pApp->presentQueue, &presentInfo);
 }
 
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
