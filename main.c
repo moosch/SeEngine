@@ -18,6 +18,12 @@ const char* WIN_TITLE = "SeEngine";
 const u32 WIN_WIDTH = 800;
 const u32 WIN_HEIGHT = 600;
 
+const int MAX_FRAMES_IN_FLIGHT = 2;
+
+u32 currentFrame = 0;
+bool framebufferResized = false;
+
+
 const u32 validationLayerCount = 1;
 const char *validationLayers[] = { "VK_LAYER_KHRONOS_validation" };
 const u32 deviceExtensionCount = 1;
@@ -65,10 +71,10 @@ typedef struct App {
   VkPipeline graphicsPipeline;
   VkFramebuffer *swapChainFramebuffers;
   VkCommandPool commandPool;
-  VkCommandBuffer commandBuffer;
-  VkSemaphore imageAvailableSemaphore;
-  VkSemaphore renderFinishedSemaphore;
-  VkFence inFlightFence;
+  VkCommandBuffer *commandBuffers;
+  VkSemaphore *imageAvailableSemaphores;
+  VkSemaphore *renderFinishedSemaphores;
+  VkFence *inFlightFences;
 } App;
 
 void initWindow(App *pApp);
@@ -116,7 +122,9 @@ VkPresentModeKHR chooseSwapPresentMode(u32 presentModeCount, VkPresentModeKHR *a
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(u32 formatCount, VkSurfaceFormatKHR *availableFormats);
 VkExtent2D chooseSwapExtent(GLFWwindow *window, VkSurfaceCapabilitiesKHR capabilities);
 
+void cleanupSwapChain(App *pApp);
 void createSwapChain(App *pApp);
+void recreateSwapChain(App *pApp);
 
 void createImageViews(App *pApp);
 
@@ -127,7 +135,7 @@ void createGraphicsPipeline(App *pApp);
 void createFramebuffers(App *pApp);
 
 void createCommandPool(App *pApp);
-void createCommandBuffer(App *pApp);
+void createCommandBuffers(App *pApp);
 
 void createSyncObjects(App *pApp);
 
@@ -146,13 +154,19 @@ int main(void) {
   return 0;
 }
 
+void framebufferResizeCallback(GLFWwindow *window, int width, int height) {
+  // App *app = glfwGetWindowUserPointer(window);
+  framebufferResized = true;
+}
+
 void initWindow(App *pApp) {
   glfwInit();
 
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
   pApp->window = glfwCreateWindow(WIN_WIDTH, WIN_HEIGHT, WIN_TITLE, NULL, NULL);
+  // glfwSetWindowUserPointer(pApp->window, pApp);
+  glfwSetFramebufferSizeCallback(pApp->window, framebufferResizeCallback);
 }
 
 void initVulkan(App *pApp) {
@@ -167,7 +181,7 @@ void initVulkan(App *pApp) {
   createGraphicsPipeline(pApp);
   createFramebuffers(pApp);
   createCommandPool(pApp);
-  createCommandBuffer(pApp);
+  createCommandBuffers(pApp);
   createSyncObjects(pApp);
 }
 
@@ -181,25 +195,19 @@ void mainLoop(App *pApp) {
 }
 
 void cleanup(App *pApp) {
-  vkDestroySemaphore(pApp->device, pApp->imageAvailableSemaphore, NULL);
-  vkDestroySemaphore(pApp->device, pApp->renderFinishedSemaphore, NULL);
-  vkDestroyFence(pApp->device, pApp->inFlightFence, NULL);
+  cleanupSwapChain(pApp);
+
+  for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    vkDestroySemaphore(pApp->device, pApp->imageAvailableSemaphores[i], NULL);
+    vkDestroySemaphore(pApp->device, pApp->renderFinishedSemaphores[i], NULL);
+    vkDestroyFence(pApp->device, pApp->inFlightFences[i], NULL);
+  }
 
   vkDestroyCommandPool(pApp->device, pApp->commandPool, NULL);
-
-  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
-    vkDestroyFramebuffer(pApp->device, pApp->swapChainFramebuffers[i], NULL);
-  }
 
   vkDestroyPipeline(pApp->device, pApp->graphicsPipeline, NULL);
   vkDestroyPipelineLayout(pApp->device, pApp->pipelineLayout, NULL);
   vkDestroyRenderPass(pApp->device, pApp->renderPass, NULL);
-
-  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
-    vkDestroyImageView(pApp->device, pApp->swapChainImageViews[i], NULL);
-  }
-
-  vkDestroySwapchainKHR(pApp->device, pApp->swapChain, NULL);
 
   if (enableValidationLayers) {
     DestroyDebugUtilsMessengerEXT(pApp->instance, pApp->debugMessenger, NULL);
@@ -463,7 +471,36 @@ void createSwapChain(App *pApp) {
   pApp->swapChainExtent = extent;
 }
 
-void createImageViews(App *pApp) {
+void cleanupSwapChain(App *pApp) {
+  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
+    vkDestroyFramebuffer(pApp->device, pApp->swapChainFramebuffers[i], NULL);
+  }
+
+  for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
+    vkDestroyImageView(pApp->device, pApp->swapChainImageViews[i], NULL);
+  }
+
+  vkDestroySwapchainKHR(pApp->device, pApp->swapChain, NULL);
+}
+
+void recreateSwapChain(App *pApp) {
+  int width = 0, height = 0;
+  glfwGetFramebufferSize(pApp->window, &width, &height);
+  while (width == 0 || height == 0) {
+    glfwGetFramebufferSize(pApp->window, &width, &height);
+    glfwWaitEvents();
+  }
+
+  vkDeviceWaitIdle(pApp->device);
+
+  cleanupSwapChain(pApp);
+
+  createSwapChain(pApp);
+  createImageViews(pApp);
+  createFramebuffers(pApp);
+}
+
+  void createImageViews(App *pApp) {
   pApp->swapChainImageViews = (VkImageView*)malloc(sizeof(VkImageView) * pApp->swapChainImageCount);
 
   for (u32 i = 0; i < pApp->swapChainImageCount; i++) {
@@ -825,20 +862,26 @@ void createCommandPool(App *pApp) {
   }
 }
 
-void createCommandBuffer(App *pApp) {
+void createCommandBuffers(App *pApp) {
+  pApp->commandBuffers = (VkCommandBuffer*)malloc(sizeof(VkCommandBuffer) * MAX_FRAMES_IN_FLIGHT);
+
   VkCommandBufferAllocateInfo allocInfo = {};
   allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
   allocInfo.commandPool = pApp->commandPool;
   allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  allocInfo.commandBufferCount = 1;
+  allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
-  if (vkAllocateCommandBuffers(pApp->device, &allocInfo, &pApp->commandBuffer) != VK_SUCCESS) {
+  if (vkAllocateCommandBuffers(pApp->device, &allocInfo, pApp->commandBuffers) != VK_SUCCESS) {
     printf("failed to allocate command buffers!\n");
     exit(12);
   }
 }
 
 void createSyncObjects(App *pApp) {
+  pApp->imageAvailableSemaphores = (VkSemaphore*)malloc(sizeof(VkSemaphore) * MAX_FRAMES_IN_FLIGHT);
+  pApp->renderFinishedSemaphores = (VkSemaphore*)malloc(sizeof(VkSemaphore) * MAX_FRAMES_IN_FLIGHT);
+  pApp->inFlightFences = (VkFence*)malloc(sizeof(VkFence) * MAX_FRAMES_IN_FLIGHT);
+
   VkSemaphoreCreateInfo semaphoreInfo = {};
   semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
@@ -846,48 +889,61 @@ void createSyncObjects(App *pApp) {
   fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
   fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-  if (vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->imageAvailableSemaphore) != VK_SUCCESS) {
-    printf("Failed to create imageAvailableSemaphore!\n");
-    exit(15);
-  }
-  if (vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->renderFinishedSemaphore) != VK_SUCCESS) {
-    printf("Failed to create renderFinishedSemaphore!\n");
-    exit(15);
-  }
-  if (vkCreateFence(pApp->device, &fenceInfo, NULL, &pApp->inFlightFence) != VK_SUCCESS) {
-    printf("Failed to create fence!\n");
-    exit(15);
+  for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+    if (vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->imageAvailableSemaphores[i]) != VK_SUCCESS) {
+      printf("Failed to create imageAvailableSemaphore!\n");
+      exit(15);
+    }
+    if (vkCreateSemaphore(pApp->device, &semaphoreInfo, NULL, &pApp->renderFinishedSemaphores[i]) != VK_SUCCESS) {
+      printf("Failed to create renderFinishedSemaphore!\n");
+      exit(15);
+    }
+    if (vkCreateFence(pApp->device, &fenceInfo, NULL, &pApp->inFlightFences[i]) != VK_SUCCESS) {
+      printf("Failed to create fence!\n");
+      exit(15);
+    }
   }
 }
 
 void drawFrame(App *pApp) {
-  vkWaitForFences(pApp->device, 1, &pApp->inFlightFence, VK_TRUE, UINT64_MAX);
+  vkWaitForFences(pApp->device, 1, &pApp->inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
-  vkResetFences(pApp->device, 1, &pApp->inFlightFence);
+  vkResetFences(pApp->device, 1, &pApp->inFlightFences[currentFrame]);
 
   uint32_t imageIndex;
-  vkAcquireNextImageKHR(pApp->device, pApp->swapChain, UINT64_MAX, pApp->imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+  VkResult result = vkAcquireNextImageKHR(pApp->device, pApp->swapChain, UINT64_MAX, pApp->imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
-  vkResetCommandBuffer(pApp->commandBuffer, 0);
-  recordCommandBuffer(pApp, pApp->commandBuffer, imageIndex);
+  if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+    recreateSwapChain(pApp);
+    return;
+  } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+    printf("Failed to acquire swap chain image!\n");
+    exit(17);
+  }
+
+  // Only reset the fence if we are submitting work
+  vkResetFences(pApp->device, 1, &pApp->inFlightFences[currentFrame]);
+
+  vkResetCommandBuffer(pApp->commandBuffers[currentFrame], 0);
+  recordCommandBuffer(pApp, pApp->commandBuffers[currentFrame], imageIndex);
 
   VkSubmitInfo submitInfo = {};
   submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
-  VkSemaphore waitSemaphores[] = { pApp->imageAvailableSemaphore };
+  VkSemaphore waitSemaphores[] = { pApp->imageAvailableSemaphores[currentFrame] };
   VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
   submitInfo.waitSemaphoreCount = 1;
   submitInfo.pWaitSemaphores = waitSemaphores;
   submitInfo.pWaitDstStageMask = waitStages;
 
   submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = &pApp->commandBuffer;
+  submitInfo.pCommandBuffers = &pApp->commandBuffers[currentFrame];
 
-  VkSemaphore signalSemaphores[] = { pApp->renderFinishedSemaphore };
+  VkSemaphore signalSemaphores[] = { pApp->renderFinishedSemaphores[currentFrame] };
   submitInfo.signalSemaphoreCount = 1;
   submitInfo.pSignalSemaphores = signalSemaphores;
 
-  if (vkQueueSubmit(pApp->graphicsQueue, 1, &submitInfo, pApp->inFlightFence) != VK_SUCCESS) {
+  if (vkQueueSubmit(pApp->graphicsQueue, 1, &submitInfo, pApp->inFlightFences[currentFrame]) != VK_SUCCESS) {
     printf("Failed to submit draw command buffer!\n");
     exit(16);
   }
@@ -905,7 +961,17 @@ void drawFrame(App *pApp) {
 
   presentInfo.pResults = NULL; // Optional
 
-  vkQueuePresentKHR(pApp->presentQueue, &presentInfo);
+  VkResult queueResult = vkQueuePresentKHR(pApp->presentQueue, &presentInfo);
+
+  if (queueResult == VK_ERROR_OUT_OF_DATE_KHR || queueResult == VK_SUBOPTIMAL_KHR || framebufferResized) {
+    framebufferResized = false;
+    recreateSwapChain(pApp);
+  } else if (queueResult != VK_SUCCESS) {
+    printf("Failed to present swap chain image!\n");
+    exit(17);
+  }
+
+  currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 bool checkDeviceExtensionSupport(VkPhysicalDevice device) {
